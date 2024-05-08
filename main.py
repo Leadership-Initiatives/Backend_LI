@@ -94,8 +94,22 @@ async def callback(code: str, state: str):
 
 @app.get("/token/{user_id}")
 async def get_token(user_id: str):
-    # Retrieve token using user_id
-    return {"creds": tokens[0]["creds"]}
+    try:
+        # Assuming 'tokens' is a predefined list or retrieved from somewhere within your application
+        if not tokens:  # Check if the tokens list is empty
+            raise HTTPException(status_code=404, detail="No tokens available")
+
+        # Retrieve token using user_id, for example, you might be using the user_id to filter tokens
+        token = next((item for item in tokens if item["user_id"] == user_id), None)
+
+        if not token:
+            raise HTTPException(status_code=404, detail="Token not found")
+
+        return {"creds": token["creds"]}
+
+    except Exception as e:
+        # Catch unexpected exceptions and log or handle them appropriately
+        raise HTTPException(status_code=500, detail=str(e))
 
 @app.get("/status")
 async def get_status():
