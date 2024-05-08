@@ -95,22 +95,25 @@ async def callback(code: str, state: str):
 @app.get("/token/{user_id}")
 async def get_token(user_id: str):
     try:
-        if not tokens:
-            raise HTTPException(status_code=404, detail="No tokens available")
+        # Ensure tokens is a list of dictionaries as expected
+        if not tokens or not all(isinstance(item, dict) for item in tokens):
+            raise HTTPException(status_code=404, detail="No valid tokens available")
 
-        # Ensure we're accessing a subscriptable part of tokens
+        # Find the correct token by user_id
         token = next((item for item in tokens if item.get("user_id") == user_id), None)
 
         if not token:
             raise HTTPException(status_code=404, detail="Token not found")
 
-        # Check if 'creds' is correctly subscriptable before accessing
-        if "creds" in token and isinstance(token["creds"], dict):
-            return {"creds": token["creds"]}
-        else:
-            raise HTTPException(status_code=400, detail="Invalid token structure")
+        # Validate that 'creds' is present and is a dictionary
+        creds = token.get("creds")
+        if not isinstance(creds, dict):
+            raise HTTPException(status_code=400, detail="Credentials format is invalid")
+
+        return {"creds": creds}
 
     except Exception as e:
+        # General catch-all to handle unexpected errors
         raise HTTPException(status_code=500, detail=f"An internal error occurred: {str(e)}")
 
 @app.get("/status")
