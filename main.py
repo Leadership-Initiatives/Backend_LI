@@ -13,10 +13,14 @@ from datetime import datetime
 import pytz
 import time
 
-app = FastAPI()
-tokens = {}  # A simple in-memory storage for tokens, initialized from file
-should_terminate = False
+import json
+from fastapi import FastAPI, HTTPException
+from google_auth_oauthlib.flow import Flow
+import secrets
 
+app = FastAPI()
+
+# Load tokens from file
 def load_tokens_from_file():
     try:
         with open('tokens.json', 'r') as file:
@@ -24,40 +28,17 @@ def load_tokens_from_file():
     except FileNotFoundError:
         return {}
 
-def save_tokens_to_file():
+# Save tokens to file, exclude non-serializable objects
+def save_tokens_to_file(tokens):
+    serializable_tokens = {k: {key: val for key, val in v.items() if key != 'flow'} for k, v in tokens.items()}
     with open('tokens.json', 'w') as file:
-        json.dump(tokens, file)
+        json.dump(serializable_tokens, file)
 
-tokens = load_tokens_from_file()  # Load tokens at startup
-
-def startup_event():
-    print("\n\n\nSTARTUP\n\n\n")
-    cache_args = load_args_from_cache()
-    print("cached")
-    if cache_args:
-        print("found cache args")
-        print(cache_args)
-        labeled_files_list = cache_args.get('labeled', [])
-        if labeled_files_list:
-            print("found a file list")
-            args_for_process = cache_args.get('arguments', {})
-            if args_for_process:
-                folder_ids = args_for_process.get('folder_ids', [])
-                destination_folder_id = args_for_process.get('destination_folder_id')
-                person_images_dict = args_for_process.get('person_images_dict', {})
-                group_photo_threshold = args_for_process.get('group_photo_threshold', 0)
-                collection_id = args_for_process.get('collection_id')
-                person_folder_dict = args_for_process.get('person_folder_dict', {})
-                labeled_files = args_for_process.get('labeled_files', 0)
-                total_files = args_for_process.get('total_files', 0)
-                cache = args_for_process.get('cache', {})
-                creds = args_for_process.get('creds', {})
-                image_names = args_for_process.get('image_names', [])
-                print("called function")
-                process_files(folder_ids, destination_folder_id, person_images_dict, group_photo_threshold, collection_id, person_folder_dict, labeled_files, total_files, cache, creds, image_names)
+tokens = load_tokens_from_file()
 
 @app.get("/auth")
 def auth(user_id: str):
+    # Create the Flow instance
     flow = Flow.from_client_secrets_file(
         'credentials.json',
         scopes=['https://www.googleapis.com/auth/drive'],
@@ -65,38 +46,35 @@ def auth(user_id: str):
     )
     flow.state = secrets.token_hex(16)
     authorization_url, _ = flow.authorization_url(prompt='consent', access_type='offline')
-    tokens[user_id] = {"user_id": user_id, "flow": flow}
-    save_tokens_to_file()
-    print(f"Auth endpoint: State is {flow.state}")
-    print(f"Auth endpoint: Tokens are {tokens}")
+    
+    # Save necessary data, exclude the Flow object
+    tokens[user_id] = {"user_id": user_id, "state": flow.state, "authorization_url": authorization_url}
+    save_tokens_to_file(tokens)
+    
     return {"authorization_url": authorization_url}
 
 @app.get("/callback")
 async def callback(code: str, state: str):
-    try:
-        flow = tokens[0]["flow"]
-        flow.fetch_token(code=code)
-        credentials = flow.credentials
-        tokens[0]["token"] = credentials.token
-        tokens[0]["creds"] = credentials
-        save_tokens_to_file()
-        return f"Authentication successful. Please close this window, and click 'Finalize Google Authentication'. {tokens[0]['token']}, {tokens[0]['creds']}"
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Experiencing network issues, please refresh the page.")
+    # Reconstruct the flow object if needed here before fetching the token
+    # Code for reconstructing the flow object
+
+    # Example token fetching
+    # This is where you'd handle the logic to validate 'state', fetch the token, and save it
+    pass
 
 @app.get("/token/{user_id}")
 async def get_token(user_id: str):
     try:
-        user_token = tokens[user_id]
-        if user_token["user_id"] == user_id:
-            return {"creds": user_token["creds"]}
+        user_token = tokens.get(user_id, {})
+        if user_token and user_token["user_id"] == user_id:
+            return {"creds": user_token.get("creds")}
         else:
             raise HTTPException(status_code=404, detail="User ID does not match any tokens")
     except KeyError:
         raise HTTPException(status_code=500, detail="Token data is incomplete or missing")
     except Exception as e:
-        print(f"Unexpected error retrieving token for user_id {user_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to retrieve token: {str(e)}")
+
 
 
 @app.get("/status")
