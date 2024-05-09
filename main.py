@@ -14,19 +14,24 @@ import pytz
 import time
 
 app = FastAPI()
-
-tokens = {}  # A simple in-memory storage for tokens
-
-# A shared state that functions can check to see if they should stop early
+tokens = {}  # A simple in-memory storage for tokens, initialized from file
 should_terminate = False
 
+def load_tokens_from_file():
+    try:
+        with open('tokens.json', 'r') as file:
+            return json.load(file)
+    except FileNotFoundError:
+        return {}
 
+def save_tokens_to_file():
+    with open('tokens.json', 'w') as file:
+        json.dump(tokens, file)
+
+tokens = load_tokens_from_file()  # Load tokens at startup
 
 def startup_event():
     print("\n\n\nSTARTUP\n\n\n")
-    """
-    On startup, check if labeled field is non-empty and if so, recall process_files.
-    """
     cache_args = load_args_from_cache()
     print("cached")
     if cache_args:
@@ -37,7 +42,6 @@ def startup_event():
             print("found a file list")
             args_for_process = cache_args.get('arguments', {})
             if args_for_process:
-
                 folder_ids = args_for_process.get('folder_ids', [])
                 destination_folder_id = args_for_process.get('destination_folder_id')
                 person_images_dict = args_for_process.get('person_images_dict', {})
@@ -52,61 +56,45 @@ def startup_event():
                 print("called function")
                 process_files(folder_ids, destination_folder_id, person_images_dict, group_photo_threshold, collection_id, person_folder_dict, labeled_files, total_files, cache, creds, image_names)
 
-
 @app.get("/auth")
 def auth(user_id: str):
-    # Create the Flow instance
     flow = Flow.from_client_secrets_file(
         'credentials.json',
         scopes=['https://www.googleapis.com/auth/drive'],
-        redirect_uri='https://libackend-40b431c4b11a.herokuapp.com/callback' 
+        redirect_uri='https://libackend-40b431c4b11a.herokuapp.com/callback'
     )
-
-    # Set the state for CSRF protection#
     flow.state = secrets.token_hex(16)
-
-    # Get the authorization URL for the consent screen
     authorization_url, _ = flow.authorization_url(prompt='consent', access_type='offline')
-
-    # Save the user_id and Flow instance for later
-    tokens[0] = {"user_id": user_id, "flow": flow}
+    tokens[user_id] = {"user_id": user_id, "flow": flow}
+    save_tokens_to_file()
     print(f"Auth endpoint: State is {flow.state}")
     print(f"Auth endpoint: Tokens are {tokens}")
-    # Return the authorization URL in the response
     return {"authorization_url": authorization_url}
-
 
 @app.get("/callback")
 async def callback(code: str, state: str):
     try:
-        print(f"Callback endpoint: State is {state}")
-        print(f"Callback endpoint: Tokens are {tokens}")
         flow = tokens[0]["flow"]
         flow.fetch_token(code=code)
-
         credentials = flow.credentials
         tokens[0]["token"] = credentials.token
         tokens[0]["creds"] = credentials
+        save_tokens_to_file()
         return f"Authentication successful. Please close this window, and click 'Finalize Google Authentication'. {tokens[0]['token']}, {tokens[0]['creds']}"
-
     except Exception as e:
-        # Raise an HTTPException with a 500 status code and a custom error message
         raise HTTPException(status_code=500, detail=f"Experiencing network issues, please refresh the page.")
 
 @app.get("/token/{user_id}")
 async def get_token(user_id: str):
     try:
-        # Assuming `tokens` is a list or dict that is globally accessible and contains user tokens
-        user_token = tokens[0]  # Simplified access, adjust based on your actual data structure
+        user_token = tokens[user_id]
         if user_token["user_id"] == user_id:
             return {"creds": user_token["creds"]}
         else:
             raise HTTPException(status_code=404, detail="User ID does not match any tokens")
     except KeyError:
-        # KeyError might occur if 'creds' or 'user_id' keys are not found in `tokens`
         raise HTTPException(status_code=500, detail="Token data is incomplete or missing")
     except Exception as e:
-        # Generic exception catch: ideally log this error
         print(f"Unexpected error retrieving token for user_id {user_id}: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to retrieve token: {str(e)}")
 
