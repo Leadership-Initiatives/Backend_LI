@@ -72,26 +72,30 @@ def startup_event():
 
 @app.get("/auth")
 def auth(user_id: str):
-    flow = InstalledAppFlow.from_client_secrets_file(
-        'credentials.json',
-        scopes=['https://www.googleapis.com/auth/drive'],
-        redirect_uri='https://libackend-40b431c4b11a.herokuapp.com/callback'
-    )
-    flow.state = secrets.token_hex(16)
-    authorization_url, _ = flow.authorization_url(prompt='consent', access_type='offline')
+    try:
+        scopes = ['https://www.googleapis.com/auth/drive']
+        flow = InstalledAppFlow.from_client_secrets_file(
+            'credentials.json',
+            scopes=scopes,
+            redirect_uri='https://your-backend-url/callback'
+        )
+        flow.state = secrets.token_hex(16)
+        authorization_url, _ = flow.authorization_url(prompt='consent', access_type='offline')
 
-    # Correctly serialize the flow attributes that you need to reconstruct it
-    flow_data = {
-        "state": flow.state,
-        "client_config": flow.client_config,  # This includes client_id, client_secret, etc.
-        "redirect_uri": flow.redirect_uri,
-        "scopes": flow.scopes
-    }
+        # Correctly serialize the flow attributes
+        flow_data = {
+            "state": flow.state,
+            "client_config": flow.client_config,  # This includes client_id, client_secret, etc.
+            "redirect_uri": flow.redirect_uri,
+            "scopes": scopes  # Use the scopes variable directly
+        }
 
-    # Save the serialized flow data in S3
-    s3.put_object(Bucket=BUCKET_NAME, Key=f'tokens/{user_id}_flow', Body=json.dumps(flow_data))
-    print(f"Auth endpoint: State is {flow.state}")
-    return {"authorization_url": authorization_url}
+        # Save the serialized flow data in S3
+        s3.put_object(Bucket=BUCKET_NAME, Key=f'tokens/{user_id}_flow', Body=json.dumps(flow_data))
+        return {"authorization_url": authorization_url}
+    except Exception as e:
+        return HTTPException(status_code=500, detail=str(e))
+
 
 @app.get("/callback")
 async def callback(code: str, state: str):
