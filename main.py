@@ -95,8 +95,21 @@ async def callback(code: str, state: str):
 
 @app.get("/token/{user_id}")
 async def get_token(user_id: str):
-    # Retrieve token using user_id
-    return {"creds": tokens[0]["creds"]}
+    try:
+        # Assuming `tokens` is a list or dict that is globally accessible and contains user tokens
+        user_token = tokens[0]  # Simplified access, adjust based on your actual data structure
+        if user_token["user_id"] == user_id:
+            return {"creds": user_token["creds"]}
+        else:
+            raise HTTPException(status_code=404, detail="User ID does not match any tokens")
+    except KeyError:
+        # KeyError might occur if 'creds' or 'user_id' keys are not found in `tokens`
+        raise HTTPException(status_code=500, detail="Token data is incomplete or missing")
+    except Exception as e:
+        # Generic exception catch: ideally log this error
+        print(f"Unexpected error retrieving token for user_id {user_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Failed to retrieve token: {str(e)}")
+
 
 @app.get("/status")
 async def get_status():
