@@ -13,31 +13,18 @@ from datetime import datetime
 import pytz
 import time
 
-from fastapi import FastAPI, HTTPException
-import boto3
-import json
-import secrets
-from google_auth_oauthlib.flow import Flow
-from google_auth_oauthlib.flow import InstalledAppFlow
-
 app = FastAPI()
 
 tokens = {}  # A simple in-memory storage for tokens
-s3 = boto3.client('s3')
-BUCKET_NAME = 'li-general-task'  # Replace with your S3 bucket name
-
 
 # A shared state that functions can check to see if they should stop early
 should_terminate = False
 
-def load_args_from_s3():
-    try:
-        response = s3.get_object(Bucket=BUCKET_NAME, Key='cache/args.json')
-        cache_args = json.loads(response['Body'].read().decode('utf-8'))
-        return cache_args
-    except Exception as e:
-        print(f"Error loading from S3: {e}")
-        return None
+
+##### HEROKU LOGIN INFO #####
+### Username: tabithapugliese@yahoo.com
+### Password: Octane3245!
+
 
 def startup_event():
     print("\n\n\nSTARTUP\n\n\n")
@@ -72,79 +59,47 @@ def startup_event():
 
 @app.get("/auth")
 def auth(user_id: str):
-    try:
-        scopes = ['https://www.googleapis.com/auth/drive']
-        flow = InstalledAppFlow.from_client_secrets_file(
-            'credentials.json',
-            scopes=scopes,
-            redirect_uri='https://libackend-40b431c4b11a.herokuapp.com/callback'
-        )
-        flow.state = secrets.token_hex(16)
-        authorization_url, _ = flow.authorization_url(prompt='consent', access_type='offline')
+    # Create the Flow instance
+    flow = Flow.from_client_secrets_file(
+        'credentials.json',
+        scopes=['https://www.googleapis.com/auth/drive'],
+        redirect_uri='https://libackend-40b431c4b11a.herokuapp.com/callback' 
+    )
 
-        # Correctly serialize the flow attributes
-        flow_data = {
-            "state": flow.state,
-            "client_config": flow.client_config,  # This includes client_id, client_secret, etc.
-            "redirect_uri": flow.redirect_uri,
-            "scopes": scopes  # Use the scopes variable directly
-        }
+    # Set the state for CSRF protection#
+    flow.state = secrets.token_hex(16)
 
-        # Save the serialized flow data in S3
-        s3.put_object(Bucket=BUCKET_NAME, Key=f'tokens/{user_id}_flow', Body=json.dumps(flow_data))
-        return {"authorization_url": authorization_url}
-    except Exception as e:
-        return HTTPException(status_code=500, detail=str(e))
+    # Get the authorization URL for the consent screen
+    authorization_url, _ = flow.authorization_url(prompt='consent', access_type='offline')
+
+    # Save the user_id and Flow instance for later
+    tokens[0] = {"user_id": user_id, "flow": flow}
+    print(f"Auth endpoint: State is {flow.state}")
+    print(f"Auth endpoint: Tokens are {tokens}")
+    # Return the authorization URL in the response
+    return {"authorization_url": authorization_url}
 
 
 @app.get("/callback")
 async def callback(code: str, state: str):
     try:
-        response = s3.get_object(Bucket=BUCKET_NAME, Key=f'tokens/{state}_flow')
-        flow_data = json.loads(response['Body'].read().decode('utf-8'))
-
-        # Reconstruct the Flow object using the saved data
-        flow = InstalledAppFlow.from_client_config(
-            {
-                "installed": {
-                    "client_id": flow_data["client_config"]['client_id'],
-                    "project_id": "your-project-id",  # Add this as needed
-                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-                    "token_uri": "https://oauth2.googleapis.com/token",
-                    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
-                    "client_secret": flow_data["client_config"]['client_secret'],
-                    "redirect_uris": [flow_data["redirect_uri"]],
-                }
-            },
-            scopes=flow_data["scopes"]
-        )
-        flow.redirect_uri = flow_data["redirect_uri"]
-        flow.state = flow_data["state"]
+        print(f"Callback endpoint: State is {state}")
+        print(f"Callback endpoint: Tokens are {tokens}")
+        flow = tokens[0]["flow"]
         flow.fetch_token(code=code)
 
         credentials = flow.credentials
-
-        # Store credentials in S3
-        s3.put_object(Bucket=BUCKET_NAME, Key=f'tokens/{state}_creds', Body=json.dumps({
-            "token": credentials.token,
-            "refresh_token": credentials.refresh_token,
-            "token_uri": credentials.token_uri,
-            "client_id": credentials.client_id,
-            "client_secret": credentials.client_secret,
-            "scopes": credentials.scopes
-        }))
-        return "Authentication successful. Please close this window and click 'Finalize Google Authentication'."
+        tokens[0]["token"] = credentials.token
+        tokens[0]["creds"] = credentials
+        return "Authentication successful. Please close this window and click 'Finalize Google Authentication'"
     except Exception as e:
+        # Raise an HTTPException with a 500 status code and a custom error message
         raise HTTPException(status_code=500, detail=f"Experiencing network issues, please refresh the page.")
 
 @app.get("/token/{user_id}")
 async def get_token(user_id: str):
-    try:
-        response = s3.get_object(Bucket=BUCKET_NAME, Key=f'tokens/{user_id}_creds')
-        creds_data = json.loads(response['Body'].read().decode('utf-8'))
-        return {"creds": creds_data}
-    except Exception as e:
-        raise HTTPException(status_code=404, detail="Credentials not found.")
+    # Retrieve token using user_id
+    return {"creds": tokens[0]["creds"]}
 
 @app.get("/status")
 async def get_status():
@@ -358,6 +313,5 @@ def terminate_all():
     # Reset the labeler_cache.json on S3
     reset_cache_on_terminate()
 
-    return {"status": "All jobs have been terminated and cache has been reset!"}
-
+    return {"status": "All jobs have been terminated and cache reset!"}
 
