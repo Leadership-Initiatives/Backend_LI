@@ -63,7 +63,7 @@ def auth(user_id: str):
     flow = Flow.from_client_secrets_file(
         'credentials.json',
         scopes=['https://www.googleapis.com/auth/drive'],
-        redirect_uri='https://libackend-40b431c4b11a.herokuapp.com/callback' 
+        redirect_uri='https://leadership-initiatives-0c372bea22f2.herokuapp.com/callback' 
     )
 
     # Set the state for CSRF protection#
@@ -314,4 +314,3 @@ def terminate_all():
     reset_cache_on_terminate()
 
     return {"status": "All jobs have been terminated and cache reset!"}
-
