@@ -18,6 +18,7 @@ import boto3
 import json
 import secrets
 from google_auth_oauthlib.flow import Flow
+from google_auth_oauthlib.flow import InstalledAppFlow
 
 app = FastAPI()
 
