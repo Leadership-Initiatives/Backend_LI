@@ -74,15 +74,25 @@ def auth(user_id: str):
     flow = Flow.from_client_secrets_file(
         'credentials.json',
         scopes=['https://www.googleapis.com/auth/drive'],
-        redirect_uri='https://your-backend-url/callback'  # Replace with your backend URL
+        redirect_uri='https://your-backend-url/callback'  # Replace with your actual redirect URI
     )
     flow.state = secrets.token_hex(16)
     authorization_url, _ = flow.authorization_url(prompt='consent', access_type='offline')
 
-    # Save the flow instance in S3 instead of in-memory
-    s3.put_object(Bucket=BUCKET_NAME, Key=f'tokens/{user_id}_flow', Body=json.dumps({
-        "flow": flow.to_json()
-    }))
+    # Serialize only the necessary parts of the Flow object
+    flow_data = {
+        "state": flow.state,
+        "client_config": flow.client_config,
+        "redirect_uri": flow.redirect_uri,
+        "auth_uri": flow.auth_uri,
+        "token_uri": flow.token_uri,
+        "client_id": flow.client_id,
+        "client_secret": flow.client_secret,
+        "scopes": flow.scopes
+    }
+
+    # Save the serialized flow data in S3
+    s3.put_object(Bucket=BUCKET_NAME, Key=f'tokens/{user_id}_flow', Body=json.dumps(flow_data))
     print(f"Auth endpoint: State is {flow.state}")
     return {"authorization_url": authorization_url}
 
