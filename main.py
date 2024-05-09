@@ -77,7 +77,7 @@ def auth(user_id: str):
         flow = InstalledAppFlow.from_client_secrets_file(
             'credentials.json',
             scopes=scopes,
-            redirect_uri='https://your-backend-url/callback'
+            redirect_uri='https://libackend-40b431c4b11a.herokuapp.com/callback'
         )
         flow.state = secrets.token_hex(16)
         authorization_url, _ = flow.authorization_url(prompt='consent', access_type='offline')
