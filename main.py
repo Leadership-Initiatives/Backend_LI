@@ -66,7 +66,7 @@ def auth(user_id: str):
     flow = Flow.from_client_secrets_file(
         'credentials.json',
         scopes=['https://www.googleapis.com/auth/drive'],
-        redirect_uri='https://yourapp.com/callback'  # Update your redirect URI
+        redirect_uri='https://libackend-40b431c4b11a.herokuapp.com/callback'  # Update your redirect URI
     )
     flow.state = secrets.token_hex(16)
     authorization_url, _ = flow.authorization_url(prompt='consent', access_type='offline')
