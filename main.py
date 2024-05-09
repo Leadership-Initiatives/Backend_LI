@@ -71,23 +71,19 @@ def startup_event():
 
 @app.get("/auth")
 def auth(user_id: str):
-    flow = Flow.from_client_secrets_file(
+    flow = InstalledAppFlow.from_client_secrets_file(
         'credentials.json',
         scopes=['https://www.googleapis.com/auth/drive'],
-        redirect_uri='https://your-backend-url/callback'  # Replace with your actual redirect URI
+        redirect_uri='https://libackend-40b431c4b11a.herokuapp.com/callback'
     )
     flow.state = secrets.token_hex(16)
     authorization_url, _ = flow.authorization_url(prompt='consent', access_type='offline')
 
-    # Serialize only the necessary parts of the Flow object
+    # Correctly serialize the flow attributes that you need to reconstruct it
     flow_data = {
         "state": flow.state,
-        "client_config": flow.client_config,
+        "client_config": flow.client_config,  # This includes client_id, client_secret, etc.
         "redirect_uri": flow.redirect_uri,
-        "auth_uri": flow.auth_uri,
-        "token_uri": flow.token_uri,
-        "client_id": flow.client_id,
-        "client_secret": flow.client_secret,
         "scopes": flow.scopes
     }
 
@@ -101,10 +97,29 @@ async def callback(code: str, state: str):
     try:
         response = s3.get_object(Bucket=BUCKET_NAME, Key=f'tokens/{state}_flow')
         flow_data = json.loads(response['Body'].read().decode('utf-8'))
-        flow = Flow.from_json(flow_data["flow"])
+
+        # Reconstruct the Flow object using the saved data
+        flow = InstalledAppFlow.from_client_config(
+            {
+                "installed": {
+                    "client_id": flow_data["client_config"]['client_id'],
+                    "project_id": "your-project-id",  # Add this as needed
+                    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
+                    "token_uri": "https://oauth2.googleapis.com/token",
+                    "auth_provider_x509_cert_url": "https://www.googleapis.com/oauth2/v1/certs",
+                    "client_secret": flow_data["client_config"]['client_secret'],
+                    "redirect_uris": [flow_data["redirect_uri"]],
+                }
+            },
+            scopes=flow_data["scopes"]
+        )
+        flow.redirect_uri = flow_data["redirect_uri"]
+        flow.state = flow_data["state"]
         flow.fetch_token(code=code)
 
         credentials = flow.credentials
+
+        # Store credentials in S3
         s3.put_object(Bucket=BUCKET_NAME, Key=f'tokens/{state}_creds', Body=json.dumps({
             "token": credentials.token,
             "refresh_token": credentials.refresh_token,
