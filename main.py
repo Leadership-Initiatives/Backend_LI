@@ -20,15 +20,7 @@ tokens = {}  # A simple in-memory storage for tokens
 # A shared state that functions can check to see if they should stop early
 should_terminate = False
 
-s3 = boto3.client('s3')
-bucket_name = 'li-general-task'  # Replace with your bucket name
 
-def save_to_s3(user_id, data):
-    s3.put_object(Bucket=bucket_name, Key=f"{user_id}/credentials.json", Body=data)
-
-def load_from_s3(user_id):
-    response = s3.get_object(Bucket=bucket_name, Key=f"{user_id}/credentials.json")
-    return response['Body'].read().decode()
 
 def startup_event():
     print("\n\n\nSTARTUP\n\n\n")
@@ -63,39 +55,47 @@ def startup_event():
 
 @app.get("/auth")
 def auth(user_id: str):
+    # Create the Flow instance
     flow = Flow.from_client_secrets_file(
         'credentials.json',
         scopes=['https://www.googleapis.com/auth/drive'],
-        redirect_uri='https://libackend-40b431c4b11a.herokuapp.com/callback'  # Update your redirect URI
+        redirect_uri='https://libackend-40b431c4b11a.herokuapp.com/callback' 
     )
+
+    # Set the state for CSRF protection#
     flow.state = secrets.token_hex(16)
+
+    # Get the authorization URL for the consent screen
     authorization_url, _ = flow.authorization_url(prompt='consent', access_type='offline')
-    # Serialize flow to store in S3 (example uses pickle, adjust based on your security practices)
-    import pickle
-    serialized_flow = pickle.dumps(flow)
-    save_to_s3(user_id, serialized_flow)
+
+    # Save the user_id and Flow instance for later
+    tokens[0] = {"user_id": user_id, "flow": flow}
+    print(f"Auth endpoint: State is {flow.state}")
+    print(f"Auth endpoint: Tokens are {tokens}")
+    # Return the authorization URL in the response
     return {"authorization_url": authorization_url}
 
+
 @app.get("/callback")
-async def callback(code: str, state: str, user_id: str):
+async def callback(code: str, state: str):
     try:
-        serialized_flow = load_from_s3(user_id)
-        import pickle
-        flow = pickle.loads(serialized_flow)
+        print(f"Callback endpoint: State is {state}")
+        print(f"Callback endpoint: Tokens are {tokens}")
+        flow = tokens[0]["flow"]
         flow.fetch_token(code=code)
+
         credentials = flow.credentials
-        # Optionally, save credentials to S3 or proceed with the token
-        return "Authentication successful. Please close this window."
+        tokens[0]["token"] = credentials.token
+        tokens[0]["creds"] = credentials
+        return "Authentication successful. Please close this window and click 'Finalize Google Authentication'."
     except Exception as e:
-        raise HTTPException(status_code=500, detail="Network issues, please refresh the page.")
+        # Raise an HTTPException with a 500 status code and a custom error message
+        raise HTTPException(status_code=500, detail=f"Experiencing network issues, please refresh the page.")
 
 @app.get("/token/{user_id}")
 async def get_token(user_id: str):
-    # Retrieve serialized credentials from S3
-    serialized_creds = load_from_s3(user_id)
-    import pickle
-    credentials = pickle.loads(serialized_creds)
-    return {"token": credentials.token}
+    # Retrieve token using user_id
+    return {"creds": tokens[0]["creds"]}
 
 @app.get("/status")
 async def get_status():
