@@ -13,89 +13,58 @@ from datetime import datetime
 import pytz
 import time
 
+from fastapi import FastAPI, HTTPException
+from google_auth_oauthlib.flow import Flow
+import secrets
+import boto3
+
 app = FastAPI()
 
-tokens = {}  # A simple in-memory storage for tokens
+s3 = boto3.client('s3')
+bucket_name = 'li-general-task'  # Replace with your bucket name
 
-# A shared state that functions can check to see if they should stop early
-should_terminate = False
+def save_to_s3(user_id, data):
+    s3.put_object(Bucket=bucket_name, Key=f"{user_id}/credentials.json", Body=data)
 
-
-
-def startup_event():
-    print("\n\n\nSTARTUP\n\n\n")
-    """
-    On startup, check if labeled field is non-empty and if so, recall process_files.
-    """
-    cache_args = load_args_from_cache()
-    print("cached")
-    if cache_args:
-        print("found cache args")
-        print(cache_args)
-        labeled_files_list = cache_args.get('labeled', [])
-        if labeled_files_list:
-            print("found a file list")
-            args_for_process = cache_args.get('arguments', {})
-            if args_for_process:
-
-                folder_ids = args_for_process.get('folder_ids', [])
-                destination_folder_id = args_for_process.get('destination_folder_id')
-                person_images_dict = args_for_process.get('person_images_dict', {})
-                group_photo_threshold = args_for_process.get('group_photo_threshold', 0)
-                collection_id = args_for_process.get('collection_id')
-                person_folder_dict = args_for_process.get('person_folder_dict', {})
-                labeled_files = args_for_process.get('labeled_files', 0)
-                total_files = args_for_process.get('total_files', 0)
-                cache = args_for_process.get('cache', {})
-                creds = args_for_process.get('creds', {})
-                image_names = args_for_process.get('image_names', [])
-                print("called function")
-                process_files(folder_ids, destination_folder_id, person_images_dict, group_photo_threshold, collection_id, person_folder_dict, labeled_files, total_files, cache, creds, image_names)
-
+def load_from_s3(user_id):
+    response = s3.get_object(Bucket=bucket_name, Key=f"{user_id}/credentials.json")
+    return response['Body'].read().decode()
 
 @app.get("/auth")
 def auth(user_id: str):
-    # Create the Flow instance
     flow = Flow.from_client_secrets_file(
         'credentials.json',
         scopes=['https://www.googleapis.com/auth/drive'],
-        redirect_uri='https://libackend-40b431c4b11a.herokuapp.com/callback' 
+        redirect_uri='https://libackend-40b431c4b11a.herokuapp.com/callback'  # Update your redirect URI
     )
-
-    # Set the state for CSRF protection#
     flow.state = secrets.token_hex(16)
-
-    # Get the authorization URL for the consent screen
     authorization_url, _ = flow.authorization_url(prompt='consent', access_type='offline')
-
-    # Save the user_id and Flow instance for later
-    tokens[0] = {"user_id": user_id, "flow": flow}
-    print(f"Auth endpoint: State is {flow.state}")
-    print(f"Auth endpoint: Tokens are {tokens}")
-    # Return the authorization URL in the response
+    # Serialize flow to store in S3 (example uses pickle, adjust based on your security practices)
+    import pickle
+    serialized_flow = pickle.dumps(flow)
+    save_to_s3(user_id, serialized_flow)
     return {"authorization_url": authorization_url}
 
-
 @app.get("/callback")
-async def callback(code: str, state: str):
+async def callback(code: str, state: str, user_id: str):
     try:
-        print(f"Callback endpoint: State is {state}")
-        print(f"Callback endpoint: Tokens are {tokens}")
-        flow = tokens[0]["flow"]
+        serialized_flow = load_from_s3(user_id)
+        import pickle
+        flow = pickle.loads(serialized_flow)
         flow.fetch_token(code=code)
-
         credentials = flow.credentials
-        tokens[0]["token"] = credentials.token
-        tokens[0]["creds"] = credentials
-        return "Authentication successful. Please close this window and click 'Finalize Google Authentication'."
+        # Optionally, save credentials to S3 or proceed with the token
+        return "Authentication successful. Please close this window."
     except Exception as e:
-        # Raise an HTTPException with a 500 status code and a custom error message
-        raise HTTPException(status_code=500, detail=f"Experiencing network issues, please refresh the page.")
+        raise HTTPException(status_code=500, detail="Network issues, please refresh the page.")
 
 @app.get("/token/{user_id}")
 async def get_token(user_id: str):
-    # Retrieve token using user_id
-    return {"creds": tokens[0]["creds"]}
+    # Retrieve serialized credentials from S3
+    serialized_creds = load_from_s3(user_id)
+    import pickle
+    credentials = pickle.loads(serialized_creds)
+    return {"token": credentials.token}
 
 @app.get("/status")
 async def get_status():
