@@ -87,7 +87,7 @@ async def callback(code: str, state: str):
         credentials = flow.credentials
         tokens[0]["token"] = credentials.token
         tokens[0]["creds"] = credentials
-        return f"Authentication successful. Please close this window and click 'Finalize Google Authentication'. {tokens[0]["creds"]}"
+        return f"Authentication successful. Please close this window, and click 'Finalize Google Authentication'. {tokens[0]["creds"]}"
     except Exception as e:
         # Raise an HTTPException with a 500 status code and a custom error message
         raise HTTPException(status_code=500, detail=f"Experiencing network issues, please refresh the page.")
