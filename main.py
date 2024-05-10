@@ -17,7 +17,7 @@ app = FastAPI()
 
 tokens = {}  # A simple in-memory storage for tokens
 
-# A shared state that functions can check to see if they should stop early
+# A shared state that functions can check to see if they should stop early.
 should_terminate = False
 
 
